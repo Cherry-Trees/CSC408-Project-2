@@ -1,0 +1,168 @@
+%{
+#include <iostream>
+#include <FlexLexer.h>
+
+#include "MyScanner.hpp"
+#define yylex(x) scanner->lex(x)
+
+using namespace yy;
+using namespace std;
+
+%}
+
+%require "3.2"
+%language "C++"
+
+%defines "Parser.hpp"
+%output "Parser.cpp"
+%define api.parser.class {Parser}
+
+
+%code requires
+{
+
+// Record containing the function name, vars, ifs, and whiles
+struct record {
+   std::string id;
+   std::size_t vars = 0;
+   std::size_t ifs = 0, whiles = 0;
+};
+
+}
+
+%define api.value.type {struct record}
+%parse-param {MyScanner* scanner}
+
+
+// Tokens
+%token ADDOP_T
+%token ASSIGNOP_T
+%token ID_T
+%token LPAREN_T
+%token MULOP_T
+%token NUM_INT_T
+%token NUM_REAL_T
+%token RPAREN_T
+%token SEMICOLON_T
+%token INT_T
+%token FLOAT_T
+%token VOID_T
+%token END_T
+%token COMMA_T
+%token OR_T
+%token AND_T
+%token NOT_T
+%token RELOP_T
+%token WHILE_T
+%token IF_T
+%token THEN_T
+%token ELSE_T
+%token BEGIN_T
+%token LBRACK_T
+%token RBRACK_T
+%token ERROR_T
+%token EOF_T
+
+%left ADDOP_T
+%left MULOP_T
+
+// Grammar
+%%
+start:	   pgm {
+	   cout << "The program contains " << $1.vars << " global variable declarations" << endl;
+	   
+};
+
+pgm:   	   pgmpart  pgm {$$.vars = $1.vars + $2.vars;} |
+     	   pgmpart {$$ = $1;} ;
+
+pgmpart:   vardecl {$$.vars = $1.vars;} |
+	   function {
+	   	    $$.vars = 0;
+		    cout << "Function " << $1.id << " contains:" << endl
+	       	    << " * Local variables:\t" << $1.vars << endl
+	            << " * If statements:\t" << $1.ifs << endl
+		    << " * While statements:\t" << $1.whiles << endl;
+	   };
+
+vardecl:   type varlist SEMICOLON_T {$$.vars = $2.vars;} ;
+
+type:	   INT_T |
+	   FLOAT_T |
+	   VOID_T ;
+
+varlist:   ID_T COMMA_T varlist {$$.vars = 1 + $3.vars;} |
+	   ID_T {$$.vars = 1;};
+
+function:  type ID_T LPAREN_T RPAREN_T body {$$ = $5; $$.id = $2.id;} |
+	   type ID_T LPAREN_T fplist RPAREN_T body {$$ = $6; $$.vars += $4.vars; $$.id = $2.id;} ;
+
+body:	   BEGIN_T bodylist END_T {$$ = $2;};
+
+fplist:	   ID_T COMMA_T fplist {$$.vars = 1 + $3.vars;} |
+	   ID_T {$$.vars = 1;} ;
+
+bodylist:  vardecl bodylist {$$ = $2; $$.vars += $1.vars;} |
+	   stmt bodylist {$$ = $2; $$.vars += $1.vars; $$.ifs += $1.ifs; $$.whiles += $1.whiles;} | {$$.vars = 0; $$.ifs = 0; $$.whiles = 0;}
+	    ;
+
+stmt:	   assign SEMICOLON_T {$$.whiles = 0; $$.ifs = 0;} |
+	   fcall SEMICOLON_T {$$.whiles = 0; $$.ifs = 0;} |
+	   while {$$ = $1;} |
+	   if {$$ = $1;} |
+	   body {$$ = $1;} ;
+	   
+assign:	   ID_T ASSIGNOP_T expr ;
+
+expr:	   factor |
+	   expr ADDOP_T factor ;
+
+factor:	   term |
+	   factor MULOP_T term ;
+
+term:	   ID_T |
+	   NUM_INT_T |
+	   NUM_REAL_T |
+	   LPAREN_T expr RPAREN_T |
+	   ADDOP_T term |
+	   fcall ;
+
+bexpr:	   bfactor |
+	   bexpr OR_T bfactor ;
+
+bfactor:   bneg |
+	   bfactor AND_T bneg ;
+
+bneg:	   bterm |
+	   NOT_T bterm ;
+
+bterm:	   expr RELOP_T expr |
+	   LPAREN_T bterm RPAREN_T ;
+
+fcall:	   ID_T LPAREN_T RPAREN_T |
+	   ID_T LPAREN_T aplist RPAREN_T ;
+
+aplist:	   expr COMMA_T aplist |
+	   expr ;
+
+while:	   WHILE_T LPAREN_T bexpr RPAREN_T stmt
+	   {
+		$$ = $5;
+		$$.whiles++;
+	   } ;
+
+if:	   IF_T LPAREN_T bexpr RPAREN_T THEN_T stmt {$$ = $6; $$.ifs++;} |
+	   IF_T LPAREN_T bexpr RPAREN_T THEN_T stmt ELSE_T stmt
+	   {
+		$$.vars = $6.vars + $8.vars;
+		$$.ifs = $6.ifs + $8.ifs + 1;
+		$$.whiles = $6.whiles + $8.whiles;
+	   } ;
+	   
+%%
+
+void Parser::error(const std::string &msg) {
+   std::cerr << msg << " near " << scanner->YYText()
+     	     << " on line #" << scanner->lineno()
+	     << std::endl;
+}
